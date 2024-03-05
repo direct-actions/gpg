@@ -46,12 +46,15 @@ jobs:
             https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x6e2b662831d0cc10
           search: rob@zwissler.org
       - name: Encrypt Test 1
-        run: |
-          # gpg encrypt
-          gpg \
-            --batch \
-            --no-tty \
-            --trust-model always \
-            --encrypt \
-            --recipient "${{ fromJSON(steps.import-test-1.outputs.keys)[0].fingerprint }}" \
-            | base64
+        uses: ./encrypt
+        with:
+          input-file: ${{ steps.curl-key.outputs.file }}
+          search: rob@zwissler.org
+      - name: Encrypt Test 2
+        uses: ./encrypt
+        with:
+          artifact-name: secret.txt.enc
+          input-command: cat "${{ steps.curl-key.outputs.file2 }}"
+          output-console: false
+          output-file: secret.txt
+          key-id: rob@zwissler.org
