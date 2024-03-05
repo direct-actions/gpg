@@ -34,7 +34,8 @@ jobs:
           echo ::endgroup::
           echo "file=${KEY_FILE}" >>"$GITHUB_OUTPUT"
           echo "file2=${KEY_FILE2}" >>"$GITHUB_OUTPUT"
-      - name: Import Test 1
+      - id: import-test-1
+        name: Import Test 1
         uses: ./keys/import
         with:
           key-files: |
@@ -44,3 +45,13 @@ jobs:
             https://keys.openpgp.org/vks/v1/by-fingerprint/A999B7498D1A8DC473E53C92309F635DAD1B5517
             https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x6e2b662831d0cc10
           search: rob@zwissler.org
+      - name: Encrypt Test 1
+        run: |
+          # gpg encrypt
+          gpg \
+            --batch \
+            --no-tty \
+            --trust-model always \
+            --encrypt \
+            --recipient "${{ fromJSON(steps.import-test-1.outputs.keys)[0].fingerprint }}" \
+            | base64
