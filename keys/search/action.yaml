@@ -1,0 +1,106 @@
+name: gpg/keys/search
+
+description: GPG search key(s) from keyserver, return JSON
+
+inputs:
+  fail-on-not-found:
+    default: true
+    description: Fail with an error if no results were found.
+    required: false
+  keyserver: 
+    default: keys.openpgp.org
+    description: Override default Key Server (keys.openpgp.org)
+    required: false
+  search:
+    description: Search string
+    required: true
+  quiet:
+    default: false
+    description: Reduce output (do not dump keys to stdout)
+    required: false
+  valid-only:
+    default: true
+    description: Return valid entries only (filter out invalid entries)
+    required: false
+
+outputs:
+  count:
+    description: Count of returned public keys
+    value: ${{ steps.search.outputs.count }}
+  keys:
+    description: Returned keys in JSON format
+    value: ${{ steps.search.outputs.keys }}
+  response_code:
+    description: HTTP response code returned while retrieving key(s)
+    value: ${{ steps.search.outputs.response_code }}
+
+runs:
+  using: composite
+  steps:
+    - env:
+        KEYSERVER: ${{ inputs.keyserver }}
+        SEARCH: ${{ inputs.search }}
+        QUIET: ${{ inputs.quiet == 'true' && 'true' || 'false' }}
+        VALID_ONLY: ${{ inputs.valid-only }}
+      id: search
+      run: |
+        # gpg/keys/search
+        #
+        tmp_curl_out=$(mktemp)
+        tmp_jq_out=$(mktemp)
+        tmp_response_code=$(mktemp)
+
+        if ! curl \
+          --fail-with-body \
+          --location "https://${KEYSERVER}/pks/lookup?op=get&options=mr&search=${SEARCH}" \
+          --output "$tmp_curl_out" \
+          --silent \
+          --write-out "%{stderr}%{response_code}" \
+          2>"${tmp_response_code}" ; then
+
+          response_code=$(cat "$tmp_response_code")
+          echo "response_code=${response_code}" >>"${GITHUB_OUTPUT}"
+          echo count=0 >>"${GITHUB_OUTPUT}"
+
+          if [ "$response_code" = 404 ] ; then
+            error_message="Querying the keyserver returned an HTTP response code ${response_code}, which means the search had no results. Response:
+        
+        $(cat "$tmp_curl_out")"
+            echo "::${{ inputs.fail-on-not-found == 'true' && 'error' || 'warning' }} title=gpg/keys/search - No search result found.::${error_message//$'\n'/'%0A'}"
+            exit ${{ inputs.fail-on-not-found == 'true' && '1' || '0' }}
+          else
+            error_message="Querying the keyserver returned an HTTP response code ${response_code}, which means there was an error. Response:
+        
+        $(cat "$tmp_curl_out")"
+            echo "::error title=gpg/keys/search - Keyserver returned error.::${error_message//$'\n'/'%0A'}"
+            exit 1
+          fi
+        fi
+        response_code=$(cat "$tmp_response_code")
+        echo "response_code=${response_code}" >>"${GITHUB_OUTPUT}"
+
+        gpg \
+          --show-keys \
+          --with-colons \
+          --with-fingerprint \
+          --with-fingerprint \
+          "$tmp_curl_out" \
+          2>/dev/null | \
+          jq -R \
+            --arg valid_only "$VALID_ONLY" \
+            '
+              # ---BEGIN JQ SCRIPT---
+              # ---END JQ SCRIPT---
+            ' >"${tmp_jq_out}"
+
+          KEY_COUNT=$(jq -r length "$tmp_jq_out")
+          echo "count=${KEY_COUNT}" >>"${GITHUB_OUTPUT}"
+          if ! $QUIET ; then
+            echo "::group::${KEY_COUNT} keys found"
+            jq -C . "$tmp_jq_out"
+            echo ::endgroup::
+          fi
+          echo 'keys<<_EOF_' >>"${GITHUB_OUTPUT}"
+          cat "$tmp_jq_out" >>"${GITHUB_OUTPUT}"
+          echo '_EOF_' >>"${GITHUB_OUTPUT}"
+      shell: bash
