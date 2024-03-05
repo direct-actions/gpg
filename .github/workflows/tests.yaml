@@ -1,0 +1,19 @@
+name: Tests
+
+on:
+  push:
+
+jobs:
+  test_action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test 1
+        uses: ./keys/search
+        with:
+          search: rob@zwissler.org
+      - name: Test 2
+        uses: ./keys/search
+        with:
+          keyserver: keyserver.ubuntu.com
+          search: amazon.com
