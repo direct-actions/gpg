@@ -1,0 +1,96 @@
+name: gpg/keys/import
+
+description: Import GPG key(s) from keyserver/file/URL return JSON
+
+inputs:
+  key-files:
+    default: ''
+    description: File name(s) of keys to import (whitespace separated for more than one)
+  key-urls:
+    default: ''
+    description: URLs(s) of keys to import (whitespace separated for more than one)
+  keyserver:
+    default: keys.openpgp.org
+    description: Override default Key Server (keys.openpgp.org)
+    required: false
+  max-keys:
+    default: 1
+    description: Maximum public keys to import from keyserver (not including sub-keys) - will fail if more than this are found.
+    required: false
+  search:
+    description: Search string
+    required: true
+  quiet:
+    default: false
+    description: Reduce output (no warnings on key security, etc)
+    required: false
+
+outputs:
+  count:
+    description: Count of returned public keys (from keyserver)
+    value: ${{ steps.search.outputs.count }}
+  keys:
+    description: Returned keys in JSON format (from keyserver)
+    value: ${{ steps.search.outputs.keys }}
+
+runs:
+  using: composite
+  steps:
+    - id: search
+      if: ${{ inputs.search != '' }}
+      uses: direct-actions/gpg/keys/search@dev
+      with:
+        keyserver: ${{ inputs.keyserver }}
+        quiet: ${{ inputs.quiet }}
+        search: ${{ inputs.search }}
+    - env:
+        KEY_COUNT: ${{ steps.search.outputs.count || '0' }}
+        KEY_FILES: ${{ inputs.key-files }}
+        KEY_SEARCH: ${{ inputs.search }}
+        KEY_URLS: ${{ inputs.key-urls }}
+        KEYS: ${{ steps.search.outputs.keys }}
+        KEYSERVER: ${{ inputs.keyserver }}
+        MAX_KEYS: ${{ inputs.max-keys }}
+        QUIET: ${{ inputs.quiet == 'true' && 'true' || 'false' }}
+      id: import
+      run: |
+        # gpg/keys/import
+        if [[ "$KEY_SEARCH" =~ ^[0-9A-Fa-f]{8}$ ]] ; then
+          echo "::warning title=gpg/keys/import - Short key ID specified for import.::The use of a 32-bit (8 character) \"short\" key ID was detected - this is considered unsafe, it is recommended to specify at least a 64-bit (16 character) \"long\" key ID, or use the full 160-bit (40 character) key fingerprint for high security applications."
+        fi
+        if [ "$KEY_COUNT" -gt 0 ] ; then
+          if [ "$KEY_COUNT" -gt "$MAX_KEYS" ] ; then
+            echo "::error title=gpg/keys/import - Too many keys found in search!::The search (${KEY_SEARCH}) returned ${KEY_COUNT} keys, which exceeds the setting of max-keys input variable (${MAX_KEYS}). Either refine the search or increase max-keys."
+          fi
+          echo '::group::Importing key(s) from keyserver'
+          while read -r fingerprint ; do
+            gpg \
+              --batch \
+              --no-tty \
+              --keyserver "$KEYSERVER" \
+              --recv-keys "$fingerprint" \
+              < /dev/null
+          done <<<$(jq -r '.[] | .fingerprint ' <<<"${KEYS}")
+          echo '::endgroup::'
+        fi
+        if ${{ inputs.key-files == '' && 'false' || 'true' }} ; then
+          echo '::group::Importing key(s) from file(s)'
+          for key_file in ${KEY_FILES} ; do
+            gpg \
+              --batch \
+              --no-tty \
+              --import "${key_file}"
+          done
+          echo '::endgroup::'
+        fi
+        if ${{ inputs.key-urls == '' && 'false' || 'true' }} ; then
+          echo '::group::Importing key(s) from URL(s)'
+          for key_url in ${KEY_URLS} ; do
+            gpg \
+              --batch \
+              --no-tty \
+              --fetch-keys "${key_url}"
+          done
+          echo '::endgroup::'
+        fi
+      shell: bash
