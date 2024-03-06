@@ -38,7 +38,7 @@ runs:
   steps:
     - id: search
       if: ${{ inputs.search != '' }}
-      uses: direct-actions/gpg/keys/search@dev
+      uses: direct-actions/gpg/keys/search@v0.0
       with:
         keyserver: ${{ inputs.keyserver }}
         quiet: ${{ inputs.quiet }}
