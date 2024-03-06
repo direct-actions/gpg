@@ -1,0 +1,60 @@
+name: Tests
+
+on:
+  push:
+
+jobs:
+  test_action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Search Test 1
+        uses: ./keys/search
+        with:
+          search: rob@zwissler.org
+      - name: Search Test 2
+        uses: ./keys/search
+        with:
+          keyserver: keyserver.ubuntu.com
+          search: amazon.com
+      - name: Search Test 3 (warning expected)
+        uses: ./keys/search
+        with:
+          fail-on-not-found: false
+          search: nobody@zwissler.org
+      - env:
+          KEY_FILE: dummy.key
+          KEY_FILE2: dummy-2.key
+        id: curl-key
+        run: |
+          # Retrieve keys for testing
+          echo ::group::curl
+          curl -L https://keys.openpgp.org/vks/v1/by-fingerprint/2DA81D01455C3A0032198850F305447AF806D46B -o "$KEY_FILE"
+          curl -L https://keys.openpgp.org/vks/v1/by-fingerprint/E5B8247AF8A619A28F90FDFC9FF25980F5BA7E4F -o "$KEY_FILE2"
+          echo ::endgroup::
+          echo "file=${KEY_FILE}" >>"$GITHUB_OUTPUT"
+          echo "file2=${KEY_FILE2}" >>"$GITHUB_OUTPUT"
+      - id: import-test-1
+        name: Import Test 1
+        uses: ./keys/import
+        with:
+          key-files: |
+            ${{ steps.curl-key.outputs.file }}
+            ${{ steps.curl-key.outputs.file2 }}
+          key-urls: |
+            https://keys.openpgp.org/vks/v1/by-fingerprint/A999B7498D1A8DC473E53C92309F635DAD1B5517
+            https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x6e2b662831d0cc10
+          search: rob@zwissler.org
+      - name: Encrypt Test 1
+        uses: ./encrypt
+        with:
+          input-file: ${{ steps.curl-key.outputs.file }}
+          search: rob@zwissler.org
+      - name: Encrypt Test 2
+        uses: ./encrypt
+        with:
+          artifact-name: secret.txt.enc
+          input-command: cat "${{ steps.curl-key.outputs.file2 }}"
+          output-console: false
+          output-file: secret.txt
+          key-id: rob@zwissler.org

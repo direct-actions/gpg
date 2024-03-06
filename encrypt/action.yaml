@@ -1,0 +1,97 @@
+name: gpg/encrypt
+
+description: Encrypt file or command output, after optionally retreiving a key from a keyserver
+
+inputs:
+  artifact-name:
+    default: ''
+    description: Set to artifact name to enable artifacting
+    required: false
+  input-command:
+    default: ''
+    description: Command to run, output will be encrypted
+    required: false
+  input-file:
+    default: ''
+    description: File to encrypt (required if input-command is not specified)
+    required: false
+  key-id:
+    default: ''
+    description: Key ID to encrypt with - must already be imported, otherwise see search
+    required: false
+  keyserver:
+    default: keys.openpgp.org
+    description: Override default Key Server (keys.openpgp.org) - only used when search is specified
+    required: false
+  output-console:
+    default: true
+    description: Dump Base64 encoded output to console
+    required: false
+  output-file:
+    default: ''
+    description: Specify an output filename (by default a temp file is used)
+    required: false
+  search:
+    description: Keyserver search string, must match only a single key (use email, long key ID or fingerprint)
+    required: true
+
+outputs:
+  output-file:
+    description: File containing encrypted output
+    value: ${{ steps.encrypt.outputs.output-file }}
+
+runs:
+  using: composite
+  steps:
+    - id: import
+      if: ${{ inputs.search != '' }}
+      uses: direct-actions/gpg/keys/import@dev
+      with:
+        keyserver: ${{ inputs.keyserver }}
+        search: ${{ inputs.search }}
+    - id: encrypt
+      env:
+        IMPORT_COUNT: ${{ steps.import.outputs.count || '0' }}
+        IMPORT_KEYS: ${{ steps.import.outputs.keys }}
+        INPUT_FILE: ${{ inputs.input-file }}
+        KEY_ID: ${{ inputs.key-id }}
+        OUTPUT_CONSOLE: ${{ inputs.output-console == 'true' && 'true' || 'false' }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+      run: |
+        # gpg/encrypt
+        if [ -z "$OUTPUT_FILE" ] ; then
+          OUTPUT_FILE=$(mktemp)
+        fi
+        if [ -z "$KEY_ID" ] ; then
+          if [ '${{ steps.import.outputs.count }}' = 1 ] ; then
+            KEY_ID=$(jq -r '.[0].fingerprint' <<<"${IMPORT_KEYS}")
+          else
+            echo "::error title=gpg/encrypt - Could not determine encryption key.::No key was specified via key-id, and there are too many or too few keys returned from gpg/import (${IMPORT_COUNT})."
+            exit 1
+          fi
+        fi
+        echo "output-file=${OUTPUT_FILE}" >>"${GITHUB_OUTPUT}"
+
+        ${{ inputs.input-command || format('cat "{0}"', inputs.input-file) }} | \
+          gpg \
+            --batch \
+            --encrypt \
+            --no-tty \
+            --trust-model always \
+            --recipient "$KEY_ID" \
+            --output - \
+            >"${OUTPUT_FILE}"
+
+        if $OUTPUT_CONSOLE ; then
+          echo '::group::Encrypted output'
+          base64 -i "$OUTPUT_FILE" 
+          echo '::endgroup::'
+        fi
+
+      shell: bash
+    - if: ${{ inputs.artifact-name != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.encrypt.outputs.output-file }}
+
