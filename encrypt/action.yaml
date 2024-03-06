@@ -45,7 +45,7 @@ runs:
   steps:
     - id: import
       if: ${{ inputs.search != '' }}
-      uses: direct-actions/gpg/keys/import@dev
+      uses: direct-actions/gpg/keys/import@v0.0
       with:
         keyserver: ${{ inputs.keyserver }}
         search: ${{ inputs.search }}
